@@ -1,0 +1,5 @@
+{
+  "name": "DLC Modern Translator",
+  "description": "A powerful, AI-driven language translator supporting 20 major global languages with real-time translation, voice input, image translation, and conversation mode.",
+  "requestFramePermissions": ["microphone", "camera"]
+}
