@@ -68,7 +68,18 @@ interface HistoryItem {
   targetLang: string;
   timestamp: number;
   isFavorite: boolean;
+  category?: string;
 }
+
+interface ProFeatures {
+  smartDictionary: boolean;
+  multiTarget: boolean;
+  exportTools: boolean;
+  grammarPro: boolean;
+  categories: boolean;
+}
+
+const CATEGORIES = ['General', 'Travel', 'Business', 'Emergency', 'Social', 'Academic'];
 
 interface ChatMessage {
   id: string;
@@ -82,9 +93,12 @@ export default function App() {
   // Core State
   const [sourceText, setSourceText] = useState('');
   const [translatedText, setTranslatedText] = useState('');
+  const [secondTranslatedText, setSecondTranslatedText] = useState('');
   const [sourceLang, setSourceLang] = useState('auto');
   const [targetLang, setTargetLang] = useState('es');
+  const [secondTargetLang, setSecondTargetLang] = useState('fr');
   const [isLoading, setIsLoading] = useState(false);
+  const [isPolishing, setIsPolishing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -96,11 +110,24 @@ export default function App() {
   });
   const [showHistory, setShowHistory] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
+  const [showProTools, setShowProTools] = useState(false);
   const [isConversationMode, setIsConversationMode] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [detectedLang, setDetectedLang] = useState<string | null>(null);
+  const [dictionaryInfo, setDictionaryInfo] = useState<any>(null);
+
+  const [proFeatures, setProFeatures] = useState<ProFeatures>(() => {
+    const saved = localStorage.getItem('pro_features');
+    return saved ? JSON.parse(saved) : {
+      smartDictionary: false,
+      multiTarget: false,
+      exportTools: false,
+      grammarPro: false,
+      categories: false
+    };
+  });
 
   const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -109,6 +136,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('translation_history', JSON.stringify(history));
   }, [history]);
+
+  useEffect(() => {
+    localStorage.setItem('pro_features', JSON.stringify(proFeatures));
+  }, [proFeatures]);
 
   // Speech Recognition Setup
   useEffect(() => {
@@ -154,34 +185,59 @@ export default function App() {
     window.speechSynthesis.speak(utterance);
   };
 
-  const translate = useCallback(async (text: string, from: string, to: string, saveToHistory = true) => {
+  const translate = useCallback(async (text: string, from: string, to: string, saveToHistory = true, isSecond = false) => {
     if (!text.trim()) {
-      setTranslatedText('');
-      setDetectedLang(null);
+      if (isSecond) setSecondTranslatedText('');
+      else {
+        setTranslatedText('');
+        setDetectedLang(null);
+        setDictionaryInfo(null);
+      }
       return;
     }
 
-    setIsLoading(true);
+    if (!isSecond) setIsLoading(true);
     setError(null);
 
     try {
       const fromLangName = from === 'auto' ? 'automatically detected language' : LANGUAGES.find(l => l.code === from)?.name;
       const toLangName = LANGUAGES.find(l => l.code === to)?.name;
 
-      const prompt = from === 'auto' 
-        ? `Detect the language of the following text and translate it to ${toLangName}. 
-           Return the response in JSON format: {"detectedLanguage": "Language Name", "translatedText": "Translation"}.
-           Text: ${text}`
-        : `Translate the following text from ${fromLangName} to ${toLangName}. Only return the translated text, nothing else.\n\nText: ${text}`;
+      const isSingleWord = text.trim().split(/\s+/).length === 1;
+      const shouldGetDictionary = proFeatures.smartDictionary && isSingleWord && !isSecond;
+
+      let prompt = "";
+      if (shouldGetDictionary) {
+        prompt = `Translate the word "${text}" from ${fromLangName} to ${toLangName}. 
+                 Also provide its definition, 3 synonyms, and 2 example sentences in both languages.
+                 Return the response in JSON format: {
+                   "translatedText": "Translation",
+                   "detectedLanguage": "Language Name",
+                   "definition": "Definition",
+                   "synonyms": ["syn1", "syn2", "syn3"],
+                   "examples": [{"source": "example in source", "target": "example in target"}]
+                 }`;
+      } else if (from === 'auto' && !isSecond) {
+        prompt = `Detect the language of the following text and translate it to ${toLangName}. 
+                 Return the response in JSON format: {"detectedLanguage": "Language Name", "translatedText": "Translation"}.
+                 Text: ${text}`;
+      } else {
+        prompt = `Translate the following text from ${fromLangName} to ${toLangName}. Only return the translated text, nothing else.\n\nText: ${text}`;
+      }
 
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: prompt,
-        config: from === 'auto' ? { responseMimeType: "application/json" } : undefined
+        config: (from === 'auto' || shouldGetDictionary) && !isSecond ? { responseMimeType: "application/json" } : undefined
       });
 
       let resultText = "";
-      if (from === 'auto') {
+      if (shouldGetDictionary) {
+        const data = JSON.parse(response.text || "{}");
+        resultText = data.translatedText || "";
+        setDetectedLang(data.detectedLanguage || null);
+        setDictionaryInfo(data);
+      } else if (from === 'auto' && !isSecond) {
         const data = JSON.parse(response.text || "{}");
         resultText = data.translatedText || "";
         setDetectedLang(data.detectedLanguage || null);
@@ -189,37 +245,89 @@ export default function App() {
         resultText = response.text || "";
       }
 
-      setTranslatedText(resultText);
-
-      if (saveToHistory && resultText) {
-        const newItem: HistoryItem = {
-          id: Math.random().toString(36).substr(2, 9),
-          sourceText: text,
-          translatedText: resultText,
-          sourceLang: from === 'auto' ? (detectedLang || 'auto') : from,
-          targetLang: to,
-          timestamp: Date.now(),
-          isFavorite: false
-        };
-        setHistory(prev => [newItem, ...prev.slice(0, 49)]);
+      if (isSecond) {
+        setSecondTranslatedText(resultText);
+      } else {
+        setTranslatedText(resultText);
+        if (saveToHistory && resultText) {
+          const newItem: HistoryItem = {
+            id: Math.random().toString(36).substr(2, 9),
+            sourceText: text,
+            translatedText: resultText,
+            sourceLang: from === 'auto' ? (detectedLang || 'auto') : from,
+            targetLang: to,
+            timestamp: Date.now(),
+            isFavorite: false,
+            category: 'General'
+          };
+          setHistory(prev => [newItem, ...prev.slice(0, 49)]);
+        }
       }
     } catch (err) {
       console.error("Translation error:", err);
       setError("Failed to translate. Please try again.");
     } finally {
-      setIsLoading(false);
+      if (!isSecond) setIsLoading(false);
     }
-  }, [detectedLang]);
+  }, [detectedLang, proFeatures.smartDictionary]);
 
   // Debounce translation
   useEffect(() => {
     const timer = setTimeout(() => {
       if (sourceText && !isListening && !isConversationMode) {
         translate(sourceText, sourceLang, targetLang);
+        if (proFeatures.multiTarget) {
+          translate(sourceText, sourceLang, secondTargetLang, false, true);
+        }
       }
     }, 800);
     return () => clearTimeout(timer);
-  }, [sourceText, sourceLang, targetLang, translate, isListening, isConversationMode]);
+  }, [sourceText, sourceLang, targetLang, secondTargetLang, translate, isListening, isConversationMode, proFeatures.multiTarget]);
+
+  const polishText = async () => {
+    if (!sourceText.trim()) return;
+    setIsPolishing(true);
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Correct the grammar, spelling, and style of the following text to make it sound professional and natural. Only return the corrected text.\n\nText: ${sourceText}`,
+      });
+      setSourceText(response.text || sourceText);
+    } catch (err) {
+      console.error("Polishing error:", err);
+    } finally {
+      setIsPolishing(false);
+    }
+  };
+
+  const exportHistory = () => {
+    if (history.length === 0) return;
+    const headers = ['Source Text', 'Translated Text', 'Source Lang', 'Target Lang', 'Category', 'Date'];
+    const rows = history.map(item => [
+      `"${item.sourceText.replace(/"/g, '""')}"`,
+      `"${item.translatedText.replace(/"/g, '""')}"`,
+      item.sourceLang,
+      item.targetLang,
+      item.category || 'General',
+      new Date(item.timestamp).toLocaleString()
+    ]);
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `translation_history_${Date.now()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const updateCategory = (id: string, category: string) => {
+    setHistory(prev => prev.map(item => 
+      item.id === id ? { ...item, category } : item
+    ));
+  };
 
   const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -309,6 +417,13 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2 border-l border-gray-200 dark:border-gray-700 pl-2 sm:pl-4">
+              <button 
+                onClick={() => setShowProTools(true)} 
+                className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} relative`}
+                title="Pro Tools"
+              >
+                <Sparkles className={`w-5 h-5 ${Object.values(proFeatures).some(v => v) ? 'text-indigo-500' : ''}`} />
+              </button>
               <button onClick={() => setShowHistory(true)} className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                 <History className="w-5 h-5" />
               </button>
@@ -432,6 +547,17 @@ export default function App() {
                       >
                         {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                       </button>
+
+                      {proFeatures.grammarPro && (
+                        <button 
+                          onClick={polishText}
+                          disabled={isPolishing || !sourceText}
+                          className={`p-2 rounded-lg transition-all ${isPolishing ? 'animate-pulse text-indigo-500' : isDarkMode ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-white text-gray-400'}`}
+                          title="Grammar Pro: Polish Text"
+                        >
+                          <Sparkles className="w-5 h-5" />
+                        </button>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <button onClick={() => speak(sourceText, sourceLang === 'auto' ? 'en' : sourceLang)} className="p-2 text-gray-400 hover:text-indigo-500">
@@ -443,33 +569,95 @@ export default function App() {
               </div>
 
               {/* Output Area */}
-              <div className={`relative rounded-3xl border transition-all overflow-hidden min-h-[300px] sm:min-h-[400px] flex flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700 shadow-2xl' : 'bg-white border-gray-100 shadow-xl shadow-gray-200/50'}`}>
-                <div className="p-4 sm:p-6 flex-1 flex flex-col relative">
-                  {isLoading && (
-                    <div className={`absolute inset-0 flex flex-col items-center justify-center backdrop-blur-sm z-10 ${isDarkMode ? 'bg-gray-800/80' : 'bg-white/80'}`}>
-                      <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-indigo-500 border-t-transparent rounded-full" />
+              <div className="flex flex-col gap-6">
+                <div className={`relative rounded-3xl border transition-all overflow-hidden min-h-[300px] sm:min-h-[400px] flex flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700 shadow-2xl' : 'bg-white border-gray-100 shadow-xl shadow-gray-200/50'}`}>
+                  <div className="p-4 sm:p-6 flex-1 flex flex-col relative">
+                    {isLoading && (
+                      <div className={`absolute inset-0 flex flex-col items-center justify-center backdrop-blur-sm z-10 ${isDarkMode ? 'bg-gray-800/80' : 'bg-white/80'}`}>
+                        <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-indigo-500 border-t-transparent rounded-full" />
+                      </div>
+                    )}
+                    <div className={`w-full flex-1 text-lg sm:text-xl font-medium ${!translatedText ? 'text-gray-500' : isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+                      {translatedText || "Translation will appear here..."}
                     </div>
-                  )}
-                  <div className={`w-full flex-1 text-lg sm:text-xl font-medium ${!translatedText ? 'text-gray-500' : isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-                    {translatedText || "Translation will appear here..."}
+                  </div>
+                  <div className={`px-4 sm:px-6 py-3 sm:py-4 border-t flex items-center justify-between transition-colors ${isDarkMode ? 'bg-gray-900/50 border-gray-700' : 'bg-gray-50/50 border-gray-50'}`}>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => speak(translatedText, targetLang)} className="p-2 text-gray-400 hover:text-indigo-500">
+                        <Volume2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => {
+                        navigator.clipboard.writeText(translatedText);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }} className="p-2 text-gray-400 hover:text-indigo-500">
+                        {copied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className={`px-4 sm:px-6 py-3 sm:py-4 border-t flex items-center justify-between transition-colors ${isDarkMode ? 'bg-gray-900/50 border-gray-700' : 'bg-gray-50/50 border-gray-50'}`}>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => speak(translatedText, targetLang)} className="p-2 text-gray-400 hover:text-indigo-500">
-                      <Volume2 className="w-5 h-5" />
-                    </button>
+
+                {proFeatures.multiTarget && (
+                  <div className={`relative rounded-3xl border transition-all overflow-hidden min-h-[200px] flex flex-col ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-100 shadow-lg shadow-gray-200/30'}`}>
+                    <div className="px-6 py-3 border-b flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">Second Target</span>
+                        <select 
+                          value={secondTargetLang}
+                          onChange={(e) => setSecondTargetLang(e.target.value)}
+                          className="bg-transparent text-xs font-bold border-none focus:ring-0 p-0"
+                        >
+                          {LANGUAGES.filter(l => l.code !== 'auto').map(lang => (
+                            <option key={lang.code} value={lang.code}>{lang.flag} {lang.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="p-6 flex-1 text-lg font-medium">
+                      {secondTranslatedText || "Second translation..."}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => {
-                      navigator.clipboard.writeText(translatedText);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }} className="p-2 text-gray-400 hover:text-indigo-500">
-                      {copied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
-                    </button>
-                  </div>
-                </div>
+                )}
+
+                {proFeatures.smartDictionary && dictionaryInfo && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`rounded-3xl border p-6 ${isDarkMode ? 'bg-indigo-900/20 border-indigo-500/30' : 'bg-indigo-50 border-indigo-100'}`}
+                  >
+                    <div className="flex items-center gap-2 mb-4">
+                      <Globe className="w-5 h-5 text-indigo-500" />
+                      <h3 className="font-bold text-indigo-600 dark:text-indigo-400">Smart Dictionary</h3>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Definition</p>
+                        <p className="text-sm font-medium">{dictionaryInfo.definition}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Synonyms</p>
+                        <div className="flex flex-wrap gap-2">
+                          {dictionaryInfo.synonyms?.map((s: string) => (
+                            <span key={s} className={`px-2 py-1 rounded-lg text-xs font-bold ${isDarkMode ? 'bg-gray-800' : 'bg-white shadow-sm'}`}>{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Examples</p>
+                        <div className="space-y-2">
+                          {dictionaryInfo.examples?.map((ex: any, i: number) => (
+                            <div key={i} className="text-sm">
+                              <p className="font-medium">"{ex.source}"</p>
+                              <p className="text-indigo-500 italic">"{ex.target}"</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
               </div>
             </motion.div>
           )}
@@ -483,6 +671,18 @@ export default function App() {
         title="History" 
         isDarkMode={isDarkMode}
       >
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-xs text-gray-500">{history.length} items</p>
+          {proFeatures.exportTools && (
+            <button 
+              onClick={exportHistory}
+              className="flex items-center gap-2 text-xs font-bold text-indigo-500 hover:text-indigo-600"
+            >
+              <Upload className="w-3 h-3" />
+              Export CSV
+            </button>
+          )}
+        </div>
         <div className="space-y-4">
           {history.length === 0 ? (
             <p className="text-center text-gray-500 py-10">No history yet.</p>
@@ -494,6 +694,8 @@ export default function App() {
                 onFavorite={() => toggleFavorite(item.id)} 
                 onDelete={() => deleteHistoryItem(item.id)}
                 isDarkMode={isDarkMode}
+                proFeatures={proFeatures}
+                onUpdateCategory={(cat: string) => updateCategory(item.id, cat)}
               />
             ))
           )}
@@ -517,11 +719,87 @@ export default function App() {
                 onFavorite={() => toggleFavorite(item.id)} 
                 onDelete={() => deleteHistoryItem(item.id)}
                 isDarkMode={isDarkMode}
+                proFeatures={proFeatures}
+                onUpdateCategory={(cat: string) => updateCategory(item.id, cat)}
               />
             ))
           )}
         </div>
       </SidePanel>
+
+      <SidePanel
+        isOpen={showProTools}
+        onClose={() => setShowProTools(false)}
+        title="Pro Tools"
+        isDarkMode={isDarkMode}
+      >
+        <div className="space-y-6">
+          <p className="text-sm text-gray-500">Enable advanced features to supercharge your translations.</p>
+          
+          <div className="space-y-4">
+            <FeatureToggle 
+              id="smartDictionary"
+              title="Smart Dictionary"
+              description="Get definitions, synonyms, and examples for single words."
+              isActive={proFeatures.smartDictionary}
+              onToggle={() => setProFeatures(prev => ({ ...prev, smartDictionary: !prev.smartDictionary }))}
+              isDarkMode={isDarkMode}
+            />
+            <FeatureToggle 
+              id="multiTarget"
+              title="Multi-Target Mode"
+              description="Translate to two languages at the same time."
+              isActive={proFeatures.multiTarget}
+              onToggle={() => setProFeatures(prev => ({ ...prev, multiTarget: !prev.multiTarget }))}
+              isDarkMode={isDarkMode}
+            />
+            <FeatureToggle 
+              id="grammarPro"
+              title="Grammar Pro"
+              description="Polish your source text for professional results."
+              isActive={proFeatures.grammarPro}
+              onToggle={() => setProFeatures(prev => ({ ...prev, grammarPro: !prev.grammarPro }))}
+              isDarkMode={isDarkMode}
+            />
+            <FeatureToggle 
+              id="exportTools"
+              title="Export Tools"
+              description="Download your history as CSV for offline use."
+              isActive={proFeatures.exportTools}
+              onToggle={() => setProFeatures(prev => ({ ...prev, exportTools: !prev.exportTools }))}
+              isDarkMode={isDarkMode}
+            />
+            <FeatureToggle 
+              id="categories"
+              title="Phrasebook Categories"
+              description="Organize your favorites into searchable categories."
+              isActive={proFeatures.categories}
+              onToggle={() => setProFeatures(prev => ({ ...prev, categories: !prev.categories }))}
+              isDarkMode={isDarkMode}
+            />
+          </div>
+        </div>
+      </SidePanel>
+    </div>
+  );
+}
+
+function FeatureToggle({ title, description, isActive, onToggle, isDarkMode }: any) {
+  return (
+    <div className={`p-4 rounded-2xl border transition-all ${isActive ? 'border-indigo-500 bg-indigo-500/5' : isDarkMode ? 'border-gray-800 bg-gray-800/50' : 'border-gray-100 bg-gray-50'}`}>
+      <div className="flex items-center justify-between mb-1">
+        <h4 className="font-bold">{title}</h4>
+        <button 
+          onClick={onToggle}
+          className={`w-10 h-5 rounded-full relative transition-colors ${isActive ? 'bg-indigo-600' : 'bg-gray-400'}`}
+        >
+          <motion.div 
+            animate={{ x: isActive ? 20 : 2 }}
+            className="absolute top-1 w-3 h-3 bg-white rounded-full"
+          />
+        </button>
+      </div>
+      <p className="text-xs text-gray-500 leading-relaxed">{description}</p>
     </div>
   );
 }
@@ -560,7 +838,7 @@ function SidePanel({ isOpen, onClose, title, children, isDarkMode }: any) {
   );
 }
 
-function HistoryCard({ item, onFavorite, onDelete, isDarkMode }: any) {
+function HistoryCard({ item, onFavorite, onDelete, isDarkMode, proFeatures, onUpdateCategory }: any) {
   return (
     <div className={`p-4 rounded-2xl border transition-all ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-100'}`}>
       <div className="flex items-center justify-between mb-2">
@@ -580,6 +858,20 @@ function HistoryCard({ item, onFavorite, onDelete, isDarkMode }: any) {
       </div>
       <p className="text-sm font-medium mb-1 line-clamp-2">{item.sourceText}</p>
       <p className={`text-sm font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{item.translatedText}</p>
+      
+      {proFeatures?.categories && (
+        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <select 
+            value={item.category || 'General'}
+            onChange={(e) => onUpdateCategory(e.target.value)}
+            className="w-full bg-transparent text-[10px] font-bold uppercase tracking-widest text-gray-400 border-none focus:ring-0 p-0"
+          >
+            {CATEGORIES.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   );
 }
