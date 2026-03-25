@@ -106,7 +106,7 @@ export default function App() {
   const [isPolishing, setIsPolishing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('app_theme') === 'dark');
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('custom_gemini_api_key') || '');
   const [accessCode, setAccessCode] = useState(() => localStorage.getItem('app_access_code') || '');
   const [isLocked, setIsLocked] = useState(() => !!localStorage.getItem('app_access_code'));
@@ -166,6 +166,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('app_access_code', accessCode);
   }, [accessCode]);
+
+  useEffect(() => {
+    localStorage.setItem('app_theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
 
   useEffect(() => {
     localStorage.setItem('strict_mode', String(strictMode));
