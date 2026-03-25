@@ -162,10 +162,17 @@ export default function App() {
 
   const handlePaste = async () => {
     try {
+      if (!navigator.clipboard) {
+        throw new Error('Clipboard API not available');
+      }
       const text = await navigator.clipboard.readText();
-      setSourceText(text);
+      if (text) {
+        setSourceText(text);
+      }
     } catch (err) {
       console.error('Failed to read clipboard:', err);
+      setError('Please use Ctrl+V (or Cmd+V) to paste, as your browser may be blocking direct clipboard access.');
+      setTimeout(() => setError(null), 5000);
     }
   };
 
@@ -340,11 +347,16 @@ export default function App() {
   // Debounce translation
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (sourceText && !isListening && !isConversationMode) {
+      if (sourceText.trim() && !isListening && !isConversationMode) {
         translate(sourceText, sourceLang, targetLang);
         if (proFeatures.multiTarget) {
           translate(sourceText, sourceLang, secondTargetLang, false, true);
         }
+      } else if (!sourceText.trim()) {
+        setTranslatedText("");
+        setSecondTranslatedText("");
+        setDetectedLang(null);
+        setDictionaryInfo(null);
       }
     }, 800);
     return () => clearTimeout(timer);
