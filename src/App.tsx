@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo, ChangeEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, ChangeEvent, RefObject } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -33,7 +33,8 @@ import {
   Bot,
   AlertCircle,
   Key,
-  ExternalLink
+  ExternalLink,
+  Clipboard
 } from 'lucide-react';
 
 const LANGUAGES = [
@@ -123,6 +124,50 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [detectedLang, setDetectedLang] = useState<string | null>(null);
   const [dictionaryInfo, setDictionaryInfo] = useState<any>(null);
+  const [isSourceFocused, setIsSourceFocused] = useState(false);
+  const [sourceCopied, setSourceCopied] = useState(false);
+
+  const sourceRef = useRef<HTMLTextAreaElement>(null);
+  const targetRef = useRef<HTMLTextAreaElement>(null);
+  const secondTargetRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustHeight = (ref: RefObject<HTMLTextAreaElement>) => {
+    if (ref.current) {
+      ref.current.style.height = 'auto';
+      ref.current.style.height = `${ref.current.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustHeight(sourceRef);
+  }, [sourceText]);
+
+  useEffect(() => {
+    adjustHeight(targetRef);
+  }, [translatedText]);
+
+  useEffect(() => {
+    adjustHeight(secondTargetRef);
+  }, [secondTranslatedText]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      adjustHeight(sourceRef);
+      adjustHeight(targetRef);
+      adjustHeight(secondTargetRef);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      setSourceText(text);
+    } catch (err) {
+      console.error('Failed to read clipboard:', err);
+    }
+  };
 
   const [proFeatures, setProFeatures] = useState<ProFeatures>(() => {
     const saved = localStorage.getItem('pro_features');
@@ -552,8 +597,8 @@ export default function App() {
               {/* Input Area */}
               <div className="relative group">
                 <div className={`absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-3xl blur opacity-0 group-focus-within:opacity-20 transition duration-500`}></div>
-                <div className={`relative rounded-3xl border transition-all overflow-hidden min-h-[300px] sm:min-h-[400px] flex flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700 shadow-2xl' : 'bg-white border-gray-100 shadow-xl shadow-gray-200/50'}`}>
-                  <div className="p-4 sm:p-6 flex-1 flex flex-col">
+                <div className={`relative rounded-3xl border transition-all overflow-hidden flex flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700 shadow-2xl' : 'bg-white border-gray-100 shadow-xl shadow-gray-200/50'}`}>
+                  <div className="p-4 sm:p-6 flex-1 flex flex-col relative">
                     {sourceLang === 'auto' && detectedLang && (
                       <div className="mb-2">
                         <span className="text-[10px] font-bold bg-indigo-500 text-white px-2 py-0.5 rounded-full uppercase tracking-wider">
@@ -561,12 +606,27 @@ export default function App() {
                         </span>
                       </div>
                     )}
-                    <textarea
-                      value={sourceText}
-                      onChange={(e) => setSourceText(e.target.value)}
-                      placeholder="Type, speak, or upload an image..."
-                      className={`w-full flex-1 resize-none border-none focus:ring-0 text-lg sm:text-xl font-medium placeholder:text-gray-400 transition-colors bg-transparent ${isDarkMode ? 'text-white' : 'text-gray-800'}`}
-                    />
+                    <div className="relative flex-1 flex flex-col">
+                      {!sourceText && !isSourceFocused && (
+                        <button 
+                          onClick={handlePaste}
+                          className={`absolute left-2 top-2 z-10 flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all border shadow-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                        >
+                          <Clipboard className="w-3 h-3" />
+                          Paste
+                        </button>
+                      )}
+                      <textarea
+                        ref={sourceRef}
+                        value={sourceText}
+                        onChange={(e) => setSourceText(e.target.value)}
+                        onFocus={() => setIsSourceFocused(true)}
+                        onBlur={() => setIsSourceFocused(false)}
+                        placeholder={!isSourceFocused && !sourceText ? "" : "Type, speak, or upload an image..."}
+                        className={`w-full resize-none border-none focus:ring-0 text-lg sm:text-xl font-medium placeholder:text-gray-400 transition-colors bg-transparent overflow-y-auto min-h-[44px] max-h-[60vh] ${isDarkMode ? 'text-white' : 'text-gray-800'}`}
+                        rows={1}
+                      />
+                    </div>
                   </div>
                   <div className={`px-4 sm:px-6 py-3 sm:py-4 border-t flex items-center justify-between transition-colors ${isDarkMode ? 'bg-gray-900/50 border-gray-700' : 'bg-gray-50/50 border-gray-50'}`}>
                     <div className="flex items-center gap-4">
@@ -601,6 +661,13 @@ export default function App() {
                       <button onClick={() => speak(sourceText, sourceLang === 'auto' ? 'en' : sourceLang)} className="p-2 text-gray-400 hover:text-indigo-500">
                         <Volume2 className="w-5 h-5" />
                       </button>
+                      <button onClick={() => {
+                        navigator.clipboard.writeText(sourceText);
+                        setSourceCopied(true);
+                        setTimeout(() => setSourceCopied(false), 2000);
+                      }} className="p-2 text-gray-400 hover:text-indigo-500">
+                        {sourceCopied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -608,16 +675,21 @@ export default function App() {
 
               {/* Output Area */}
               <div className="flex flex-col gap-6">
-                <div className={`relative rounded-3xl border transition-all overflow-hidden min-h-[300px] sm:min-h-[400px] flex flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700 shadow-2xl' : 'bg-white border-gray-100 shadow-xl shadow-gray-200/50'}`}>
+                <div className={`relative rounded-3xl border transition-all overflow-hidden flex flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700 shadow-2xl' : 'bg-white border-gray-100 shadow-xl shadow-gray-200/50'}`}>
                   <div className="p-4 sm:p-6 flex-1 flex flex-col relative">
                     {isLoading && (
                       <div className={`absolute inset-0 flex flex-col items-center justify-center backdrop-blur-sm z-10 ${isDarkMode ? 'bg-gray-800/80' : 'bg-white/80'}`}>
                         <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-8 h-8 sm:w-10 sm:h-10 border-4 border-indigo-500 border-t-transparent rounded-full" />
                       </div>
                     )}
-                    <div className={`w-full flex-1 text-lg sm:text-xl font-medium ${!translatedText ? 'text-gray-500' : isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-                      {translatedText || "Translation will appear here..."}
-                    </div>
+                    <textarea
+                      ref={targetRef}
+                      readOnly
+                      value={translatedText}
+                      placeholder="Translation will appear here..."
+                      className={`w-full resize-none border-none focus:ring-0 text-lg sm:text-xl font-medium transition-colors bg-transparent overflow-y-auto min-h-[44px] max-h-[60vh] ${!translatedText ? 'text-gray-500' : isDarkMode ? 'text-white' : 'text-gray-800'}`}
+                      rows={1}
+                    />
                   </div>
                   <div className={`px-4 sm:px-6 py-3 sm:py-4 border-t flex items-center justify-between transition-colors ${isDarkMode ? 'bg-gray-900/50 border-gray-700' : 'bg-gray-50/50 border-gray-50'}`}>
                     <div className="flex items-center gap-2">
@@ -638,7 +710,7 @@ export default function App() {
                 </div>
 
                 {proFeatures.multiTarget && (
-                  <div className={`relative rounded-3xl border transition-all overflow-hidden min-h-[200px] flex flex-col ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-100 shadow-lg shadow-gray-200/30'}`}>
+                  <div className={`relative rounded-3xl border transition-all overflow-hidden flex flex-col ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-100 shadow-lg shadow-gray-200/30'}`}>
                     <div className="px-6 py-3 border-b flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">Second Target</span>
@@ -653,8 +725,15 @@ export default function App() {
                         </select>
                       </div>
                     </div>
-                    <div className="p-6 flex-1 text-lg font-medium">
-                      {secondTranslatedText || "Second translation..."}
+                    <div className="p-6 flex-1 flex flex-col">
+                      <textarea
+                        ref={secondTargetRef}
+                        readOnly
+                        value={secondTranslatedText}
+                        placeholder="Second translation..."
+                        className={`w-full resize-none border-none focus:ring-0 text-lg font-medium transition-colors bg-transparent overflow-y-auto min-h-[44px] max-h-[40vh] ${!secondTranslatedText ? 'text-gray-500' : isDarkMode ? 'text-white' : 'text-gray-800'}`}
+                        rows={1}
+                      />
                     </div>
                   </div>
                 )}
