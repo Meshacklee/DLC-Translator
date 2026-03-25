@@ -33,12 +33,7 @@ import {
   Bot,
   AlertCircle,
   Key,
-  Lock,
-  Unlock,
-  ExternalLink,
-  ShieldCheck,
-  UserCheck,
-  ShieldAlert
+  ExternalLink
 } from 'lucide-react';
 
 const LANGUAGES = [
@@ -108,18 +103,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('app_theme') === 'dark');
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('custom_gemini_api_key') || '');
-  const [accessCode, setAccessCode] = useState(() => localStorage.getItem('app_access_code') || '');
-  const [isLocked, setIsLocked] = useState(() => !!localStorage.getItem('app_access_code'));
-  const [unlockInput, setUnlockInput] = useState('');
-  const [unlockError, setUnlockError] = useState(false);
-  const [isHumanVerified, setIsHumanVerified] = useState(() => !!localStorage.getItem('is_human_verified'));
-  const [strictMode, setStrictMode] = useState(() => localStorage.getItem('strict_mode') === 'true');
-  const [verifying, setVerifying] = useState(false);
 
   const ai = useMemo(() => {
-    const key = customApiKey || (strictMode ? "" : process.env.GEMINI_API_KEY) || "";
+    const key = customApiKey || process.env.GEMINI_API_KEY || "";
     return new GoogleGenAI({ apiKey: key });
-  }, [customApiKey, strictMode]);
+  }, [customApiKey]);
   
   // Feature State
   const [history, setHistory] = useState<HistoryItem[]>(() => {
@@ -164,22 +152,8 @@ export default function App() {
   }, [customApiKey]);
 
   useEffect(() => {
-    localStorage.setItem('app_access_code', accessCode);
-  }, [accessCode]);
-
-  useEffect(() => {
     localStorage.setItem('app_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
-
-  useEffect(() => {
-    localStorage.setItem('strict_mode', String(strictMode));
-  }, [strictMode]);
-
-  useEffect(() => {
-    if (isHumanVerified) {
-      localStorage.setItem('is_human_verified', 'true');
-    }
-  }, [isHumanVerified]);
 
   // Speech Recognition Setup
   useEffect(() => {
@@ -432,105 +406,6 @@ export default function App() {
     setTranslatedText(sourceText);
   };
 
-  const handleUnlock = () => {
-    if (unlockInput === accessCode) {
-      setIsLocked(false);
-      setUnlockError(false);
-    } else {
-      setUnlockError(true);
-      setTimeout(() => setUnlockError(false), 500);
-    }
-  };
-
-  const handleHumanVerify = () => {
-    setVerifying(true);
-    // Simulate a human-like delay to stop simple bots
-    setTimeout(() => {
-      setIsHumanVerified(true);
-      setVerifying(false);
-    }, 1500);
-  };
-
-  if (!isHumanVerified) {
-    return (
-      <div className={`min-h-screen flex items-center justify-center p-4 ${isDarkMode ? 'bg-[#0F172A] text-white' : 'bg-[#F9FAFB] text-[#111827]'}`}>
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`w-full max-w-md p-10 rounded-[2.5rem] border text-center ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100 shadow-2xl'}`}
-        >
-          <div className="w-20 h-20 bg-indigo-100 dark:bg-indigo-900/30 rounded-3xl flex items-center justify-center mx-auto mb-8">
-            <ShieldCheck className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
-          </div>
-          <h2 className="text-3xl font-black mb-4 tracking-tight">Bot Shield</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mb-10 leading-relaxed">
-            To prevent automated bots from exhausting the API quota, please verify that you are a human.
-          </p>
-          
-          <button 
-            onClick={handleHumanVerify}
-            disabled={verifying}
-            className={`w-full py-5 rounded-2xl font-bold text-lg transition-all flex items-center justify-center gap-3 shadow-xl shadow-indigo-600/20 ${verifying ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
-          >
-            {verifying ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Verifying...
-              </>
-            ) : (
-              <>
-                <UserCheck className="w-6 h-6" />
-                I am a Human
-              </>
-            )}
-          </button>
-          
-          <p className="mt-8 text-[10px] text-gray-400 uppercase tracking-widest font-bold">
-            Protected by DLC Modern Security
-          </p>
-        </motion.div>
-      </div>
-    );
-  }
-
-  if (isLocked) {
-    return (
-      <div className={`min-h-screen flex items-center justify-center p-4 ${isDarkMode ? 'bg-[#0F172A] text-white' : 'bg-[#F9FAFB] text-[#111827]'}`}>
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className={`w-full max-w-md p-8 rounded-3xl border text-center ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100 shadow-2xl'}`}
-        >
-          <div className="w-16 h-16 bg-indigo-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-indigo-500/20">
-            <Lock className="w-8 h-8 text-white" />
-          </div>
-          <h2 className="text-2xl font-bold mb-2">App Locked</h2>
-          <p className="text-gray-500 text-sm mb-8">Please enter your access code to continue.</p>
-          
-          <div className="space-y-4">
-            <motion.div animate={unlockError ? { x: [-10, 10, -10, 10, 0] } : {}}>
-              <input 
-                type="password"
-                value={unlockInput}
-                onChange={(e) => setUnlockInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
-                placeholder="Enter Access Code"
-                className={`w-full px-6 py-4 rounded-2xl text-center text-xl font-bold tracking-[0.5em] border transition-all focus:ring-2 focus:ring-indigo-500 outline-none ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-gray-50 border-gray-100'}`}
-                autoFocus
-              />
-            </motion.div>
-            <button 
-              onClick={handleUnlock}
-              className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-indigo-600/20"
-            >
-              Unlock App
-            </button>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
     <div className={`min-h-screen transition-colors duration-300 font-sans ${isDarkMode ? 'bg-[#0F172A] text-white' : 'bg-[#F9FAFB] text-[#111827]'}`}>
       {/* Header */}
@@ -576,15 +451,6 @@ export default function App() {
               <button onClick={() => setShowFavorites(true)} className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                 <Star className="w-5 h-5" />
               </button>
-              {accessCode && (
-                <button 
-                  onClick={() => setIsLocked(true)} 
-                  className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
-                  title="Lock App Now"
-                >
-                  <Lock className="w-5 h-5 text-red-500" />
-                </button>
-              )}
               <button 
                 onClick={() => setIsDarkMode(!isDarkMode)}
                 className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700' : 'bg-white text-gray-500 hover:bg-gray-100 border border-gray-100 shadow-sm'}`}
@@ -985,73 +851,6 @@ export default function App() {
               )}
             </div>
             <p className="mt-2 text-[10px] text-gray-400">Your key is stored locally in your browser.</p>
-          </div>
-
-          <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-indigo-500" />
-                <h4 className="font-bold text-sm">App Security</h4>
-              </div>
-              {accessCode && (
-                <button 
-                  onClick={() => setIsLocked(true)}
-                  className="text-[10px] font-bold text-red-500 hover:text-red-600 uppercase tracking-wider flex items-center gap-1"
-                >
-                  Lock Now <Lock className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 mb-3">Set an access code to prevent unauthorized use.</p>
-            <div className="relative">
-              <input 
-                type="text"
-                value={accessCode}
-                onChange={(e) => setAccessCode(e.target.value)}
-                placeholder="Set Access Code (e.g. 1234)"
-                className={`w-full px-4 py-3 rounded-xl text-sm border transition-all focus:ring-2 focus:ring-indigo-500 outline-none ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-100 text-gray-900'}`}
-              />
-              {accessCode && (
-                <button 
-                  onClick={() => setAccessCode('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
-                >
-                  <X className="w-3 h-3 text-gray-400" />
-                </button>
-              )}
-            </div>
-            <p className="mt-2 text-[10px] text-gray-400">Leave empty to disable the lock screen.</p>
-          </div>
-
-          <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex items-center gap-2 mb-4">
-              <ShieldAlert className="w-4 h-4 text-red-500" />
-              <h4 className="font-bold text-sm">Bot Shield (Strict Mode)</h4>
-            </div>
-            <div className="flex items-center justify-between p-4 rounded-2xl bg-red-500/5 border border-red-500/20">
-              <div className="flex-1 pr-4">
-                <p className="text-xs font-bold text-red-600 dark:text-red-400 mb-1">Private Key Only</p>
-                <p className="text-[10px] text-gray-500">Disables the built-in API key. The app will ONLY work with your private key.</p>
-              </div>
-              <button 
-                onClick={() => setStrictMode(!strictMode)}
-                className={`w-10 h-5 rounded-full relative transition-colors ${strictMode ? 'bg-red-600' : 'bg-gray-400'}`}
-              >
-                <motion.div 
-                  animate={{ x: strictMode ? 20 : 2 }}
-                  className="w-4 h-4 bg-white rounded-full absolute top-0.5"
-                />
-              </button>
-            </div>
-            <button 
-              onClick={() => {
-                localStorage.removeItem('is_human_verified');
-                window.location.reload();
-              }}
-              className="w-full mt-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-[10px] font-bold uppercase tracking-wider hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
-            >
-              Reset Human Verification
-            </button>
           </div>
         </div>
       </SidePanel>
