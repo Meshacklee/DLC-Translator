@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useCallback, useRef, ChangeEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, ChangeEvent } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -30,11 +30,10 @@ import {
   Camera,
   Upload,
   User,
-  Bot
+  Bot,
+  AlertCircle,
+  Key
 } from 'lucide-react';
-
-// Initialize Gemini AI
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 const LANGUAGES = [
   { code: 'auto', name: 'Auto-detect', flag: '✨', speechCode: 'en-US' },
@@ -102,6 +101,11 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('custom_gemini_api_key') || '');
+
+  const ai = useMemo(() => {
+    return new GoogleGenAI({ apiKey: customApiKey || process.env.GEMINI_API_KEY || "" });
+  }, [customApiKey]);
   
   // Feature State
   const [history, setHistory] = useState<HistoryItem[]>(() => {
@@ -140,6 +144,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('pro_features', JSON.stringify(proFeatures));
   }, [proFeatures]);
+
+  useEffect(() => {
+    localStorage.setItem('custom_gemini_api_key', customApiKey);
+  }, [customApiKey]);
 
   // Speech Recognition Setup
   useEffect(() => {
@@ -263,13 +271,20 @@ export default function App() {
           setHistory(prev => [newItem, ...prev.slice(0, 49)]);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Translation error:", err);
-      setError("Failed to translate. Please try again.");
+      const errorMsg = err.message || String(err);
+      if (errorMsg.includes('429') || errorMsg.includes('quota')) {
+        setError("Rate limit reached (15 requests/min). Please wait 60 seconds.");
+      } else if (errorMsg.includes('API key') || errorMsg.includes('invalid')) {
+        setError("Invalid API key. Please check your configuration in Pro Tools.");
+      } else {
+        setError("Failed to translate. Please try again.");
+      }
     } finally {
       if (!isSecond) setIsLoading(false);
     }
-  }, [detectedLang, proFeatures.smartDictionary]);
+  }, [detectedLang, proFeatures.smartDictionary, ai]);
 
   // Debounce translation
   useEffect(() => {
@@ -442,6 +457,22 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20">
+        {error && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`mb-6 p-4 rounded-2xl flex items-center justify-between gap-4 border ${isDarkMode ? 'bg-red-900/20 border-red-500/30 text-red-400' : 'bg-red-50 border-red-100 text-red-600'}`}
+          >
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <p className="text-sm font-medium">{error}</p>
+            </div>
+            <button onClick={() => setError(null)} className="p-1 hover:bg-red-500/10 rounded-lg transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+
         <AnimatePresence mode="wait">
           {isConversationMode ? (
             <ConversationView 
@@ -450,6 +481,7 @@ export default function App() {
               targetLang={targetLang}
               setSourceLang={setSourceLang}
               setTargetLang={setTargetLang}
+              ai={ai}
             />
           ) : (
             <motion.div 
@@ -778,6 +810,32 @@ export default function App() {
               isDarkMode={isDarkMode}
             />
           </div>
+
+          <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-2 mb-4">
+              <Key className="w-4 h-4 text-indigo-500" />
+              <h4 className="font-bold text-sm">Custom API Key</h4>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">Override the default API key if you hit rate limits.</p>
+            <div className="relative">
+              <input 
+                type="password"
+                value={customApiKey}
+                onChange={(e) => setCustomApiKey(e.target.value)}
+                placeholder="Enter your Gemini API Key..."
+                className={`w-full px-4 py-3 rounded-xl text-sm border transition-all focus:ring-2 focus:ring-indigo-500 outline-none ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-100 text-gray-900'}`}
+              />
+              {customApiKey && (
+                <button 
+                  onClick={() => setCustomApiKey('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
+                >
+                  <X className="w-3 h-3 text-gray-400" />
+                </button>
+              )}
+            </div>
+            <p className="mt-2 text-[10px] text-gray-400">Your key is stored locally in your browser.</p>
+          </div>
         </div>
       </SidePanel>
     </div>
@@ -876,7 +934,7 @@ function HistoryCard({ item, onFavorite, onDelete, isDarkMode, proFeatures, onUp
   );
 }
 
-function ConversationView({ isDarkMode, sourceLang, targetLang, setSourceLang, setTargetLang }: any) {
+function ConversationView({ isDarkMode, sourceLang, targetLang, setSourceLang, setTargetLang, ai }: any) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isListening, setIsListening] = useState<'user1' | 'user2' | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
