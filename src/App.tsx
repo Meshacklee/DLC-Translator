@@ -32,7 +32,10 @@ import {
   User,
   Bot,
   AlertCircle,
-  Key
+  Key,
+  Lock,
+  Unlock,
+  ExternalLink
 } from 'lucide-react';
 
 const LANGUAGES = [
@@ -102,6 +105,10 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('custom_gemini_api_key') || '');
+  const [accessCode, setAccessCode] = useState(() => localStorage.getItem('app_access_code') || '');
+  const [isLocked, setIsLocked] = useState(() => !!localStorage.getItem('app_access_code'));
+  const [unlockInput, setUnlockInput] = useState('');
+  const [unlockError, setUnlockError] = useState(false);
 
   const ai = useMemo(() => {
     return new GoogleGenAI({ apiKey: customApiKey || process.env.GEMINI_API_KEY || "" });
@@ -148,6 +155,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('custom_gemini_api_key', customApiKey);
   }, [customApiKey]);
+
+  useEffect(() => {
+    localStorage.setItem('app_access_code', accessCode);
+  }, [accessCode]);
 
   // Speech Recognition Setup
   useEffect(() => {
@@ -399,6 +410,54 @@ export default function App() {
     setSourceText(translatedText);
     setTranslatedText(sourceText);
   };
+
+  const handleUnlock = () => {
+    if (unlockInput === accessCode) {
+      setIsLocked(false);
+      setUnlockError(false);
+    } else {
+      setUnlockError(true);
+      setTimeout(() => setUnlockError(false), 500);
+    }
+  };
+
+  if (isLocked) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center p-4 ${isDarkMode ? 'bg-[#0F172A] text-white' : 'bg-[#F9FAFB] text-[#111827]'}`}>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className={`w-full max-w-md p-8 rounded-3xl border text-center ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100 shadow-2xl'}`}
+        >
+          <div className="w-16 h-16 bg-indigo-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-indigo-500/20">
+            <Lock className="w-8 h-8 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">App Locked</h2>
+          <p className="text-gray-500 text-sm mb-8">Please enter your access code to continue.</p>
+          
+          <div className="space-y-4">
+            <motion.div animate={unlockError ? { x: [-10, 10, -10, 10, 0] } : {}}>
+              <input 
+                type="password"
+                value={unlockInput}
+                onChange={(e) => setUnlockInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
+                placeholder="Enter Access Code"
+                className={`w-full px-6 py-4 rounded-2xl text-center text-xl font-bold tracking-[0.5em] border transition-all focus:ring-2 focus:ring-indigo-500 outline-none ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-gray-50 border-gray-100'}`}
+                autoFocus
+              />
+            </motion.div>
+            <button 
+              onClick={handleUnlock}
+              className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-indigo-600/20"
+            >
+              Unlock App
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen transition-colors duration-300 font-sans ${isDarkMode ? 'bg-[#0F172A] text-white' : 'bg-[#F9FAFB] text-[#111827]'}`}>
@@ -817,6 +876,16 @@ export default function App() {
               <h4 className="font-bold text-sm">Custom API Key</h4>
             </div>
             <p className="text-xs text-gray-500 mb-3">Override the default API key if you hit rate limits.</p>
+            
+            <a 
+              href="https://aistudio.google.com/app/apikey" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-[10px] font-bold text-indigo-500 hover:text-indigo-600 mb-3 uppercase tracking-wider"
+            >
+              Get Free API Key <ExternalLink className="w-3 h-3" />
+            </a>
+
             <div className="relative">
               <input 
                 type="password"
@@ -835,6 +904,32 @@ export default function App() {
               )}
             </div>
             <p className="mt-2 text-[10px] text-gray-400">Your key is stored locally in your browser.</p>
+          </div>
+
+          <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-2 mb-4">
+              <Lock className="w-4 h-4 text-indigo-500" />
+              <h4 className="font-bold text-sm">App Security</h4>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">Set an access code to prevent unauthorized use.</p>
+            <div className="relative">
+              <input 
+                type="text"
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                placeholder="Set Access Code (e.g. 1234)"
+                className={`w-full px-4 py-3 rounded-xl text-sm border transition-all focus:ring-2 focus:ring-indigo-500 outline-none ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-100 text-gray-900'}`}
+              />
+              {accessCode && (
+                <button 
+                  onClick={() => setAccessCode('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
+                >
+                  <X className="w-3 h-3 text-gray-400" />
+                </button>
+              )}
+            </div>
+            <p className="mt-2 text-[10px] text-gray-400">Leave empty to disable the lock screen.</p>
           </div>
         </div>
       </SidePanel>
