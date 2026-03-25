@@ -504,6 +504,15 @@ export default function App() {
               <button onClick={() => setShowFavorites(true)} className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                 <Star className="w-5 h-5" />
               </button>
+              {accessCode && (
+                <button 
+                  onClick={() => setIsLocked(true)} 
+                  className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
+                  title="Lock App Now"
+                >
+                  <Lock className="w-5 h-5 text-red-500" />
+                </button>
+              )}
               <button 
                 onClick={() => setIsDarkMode(!isDarkMode)}
                 className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700' : 'bg-white text-gray-500 hover:bg-gray-100 border border-gray-100 shadow-sm'}`}
@@ -907,9 +916,19 @@ export default function App() {
           </div>
 
           <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex items-center gap-2 mb-4">
-              <Lock className="w-4 h-4 text-indigo-500" />
-              <h4 className="font-bold text-sm">App Security</h4>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-indigo-500" />
+                <h4 className="font-bold text-sm">App Security</h4>
+              </div>
+              {accessCode && (
+                <button 
+                  onClick={() => setIsLocked(true)}
+                  className="text-[10px] font-bold text-red-500 hover:text-red-600 uppercase tracking-wider flex items-center gap-1"
+                >
+                  Lock Now <Lock className="w-3 h-3" />
+                </button>
+              )}
             </div>
             <p className="text-xs text-gray-500 mb-3">Set an access code to prevent unauthorized use.</p>
             <div className="relative">
